@@ -1,14 +1,12 @@
 import sqlite3
-from datetime import date
 
 DB_NAME = "tracker.db"
 
 def init_db():
-    """Создает таблицы в базе данных с учетом анкетирования"""
+    """Создает таблицы в базе данных"""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
-    # Таблица пользователей с учетом всех параметров и целей
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
@@ -23,7 +21,6 @@ def init_db():
         )
     ''')
     
-    # Таблица ежедневных логов для калорий, воды и шагов
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS daily_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,7 +41,7 @@ def init_db():
 def update_user_profile(user_id: int, username: str, age: int, height: int, 
                         current_weight: float, target_weight: float, target_months: int, 
                         calorie_goal: int, water_goal: int):
-    """Сохраняет или обновляет данные профиля пользователя и его нормы (Upsert)"""
+    """Сохраняет или обновляет данные профиля пользователя (Upsert)"""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
@@ -64,3 +61,28 @@ def update_user_profile(user_id: int, username: str, age: int, height: int,
     
     conn.commit()
     conn.close()
+
+def get_user_profile(user_id: int):
+    """Возвращает данные профиля пользователя по его id"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT age, height, current_weight, target_weight, target_months, calorie_goal, water_goal 
+        FROM users WHERE user_id = ?
+    ''', (user_id,))
+    
+    row = cursor.fetchone()
+    conn.close()
+    
+    if row:
+        return {
+            "age": row[0],
+            "height": row[1],
+            "current_weight": row[2],
+            "target_weight": row[3],
+            "target_months": row[4],
+            "calorie_goal": row[5],
+            "water_goal": row[6]
+        }
+    return None
