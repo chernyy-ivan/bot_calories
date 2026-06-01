@@ -29,9 +29,10 @@ class ProfileStates(StatesGroup):
 class WaterStates(StatesGroup):
     waiting_for_custom_water = State()
 
-# Состояния для логирования еды
+# ИСПРАВЛЕНО: Теперь для еды два последовательных шага
 class FoodStates(StatesGroup):
-    waiting_for_calories = State()
+    waiting_for_food_name = State()   # Шаг 1: Название блюда
+    waiting_for_calories = State()    # Шаг 2: Калорийность
 
 
 # --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
@@ -74,7 +75,7 @@ def get_water_keyboard():
 def get_food_keyboard():
     """Клавиатура для дневника еды"""
     builder = InlineKeyboardBuilder()
-    builder.row(types.InlineKeyboardButton(text="✍️ Записать калории", callback_data="add_food_prompt"))
+    builder.row(types.InlineKeyboardButton(text="✍️ Записать еду", callback_data="add_food_prompt"))
     builder.row(types.InlineKeyboardButton(text="🔙 Назад в меню", callback_data="back_to_menu"))
     return builder.as_markup()
 
@@ -176,7 +177,6 @@ async def callback_menu_water(callback: types.CallbackQuery):
     await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=get_water_keyboard())
     await callback.answer()
 
-# ИСПРАВЛЕНО: Теперь ловим только те кнопки, где в конце строки идут цифры веса (250, 500 и т.д.)
 @dp.callback_query(F.data.startswith("add_water_") & F.data.split("_")[2].cast(str).isdigit())
 async def callback_add_water(callback: types.CallbackQuery):
     amount = int(callback.data.split("_")[2])
@@ -236,13 +236,29 @@ async def callback_menu_food(callback: types.CallbackQuery):
     await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=get_food_keyboard())
     await callback.answer()
 
+# ИСПРАВЛЕНО: Сначала запрашиваем название еды
 @dp.callback_query(F.data == "add_food_prompt")
 async def callback_add_food_prompt(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer("Введите количество калорий (ккал), которые вы съели:")
-    await state.set_state(FoodStates.waiting_for_calories)
+    await callback.message.answer("📝 Что ты съел(а)? Напиши название:")
+    await state.set_state(FoodStates.waiting_for_food_name)
     await callback.message.delete()
     await callback.answer()
 
+# НОВЫЙ ХЕНДЛЕР: Ловим название еды и переключаем на калории
+@dp.message(FoodStates.waiting_for_food_name)
+async def process_food_name(message: types.Message, state: FSMContext):
+    food_name = message.text.strip()
+    if len(food_name) < 2:
+        await message.answer("Название слишком короткое. Введи что-то более понятное!")
+        return
+        
+    # Сохраняем название во временное хранилище FSM
+    await state.update_data(food_name=food_name)
+    
+    await message.answer(f"Отлично, «{food_name}». А теперь введи калорийность этого блюда (ккал):")
+    await state.set_state(FoodStates.waiting_for_calories)
+
+# ИСПРАВЛЕНО: Ловим калории, достаем название из памяти и записываем
 @dp.message(FoodStates.waiting_for_calories)
 async def process_food_calories(message: types.Message, state: FSMContext):
     if not message.text.isdigit():
@@ -252,7 +268,11 @@ async def process_food_calories(message: types.Message, state: FSMContext):
     calories = int(message.text)
     database.add_calories_to_db(message.from_user.id, calories)
     
-    await message.answer(f"✅ Успешно записано: {calories} ккал.")
+    # Достаем сохраненное имя еды из контекста FSM
+    user_data = await state.get_data()
+    food_name = user_data.get('food_name', 'Продукт')
+    
+    await message.answer(f"✅ Успешно записано: *{food_name}* — {calories} ккал. 👍", parse_mode="Markdown")
     await message.answer("📋 Главное меню:", reply_markup=get_main_menu_keyboard())
     await state.clear()
 
