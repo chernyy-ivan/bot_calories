@@ -25,9 +25,26 @@ class ProfileStates(StatesGroup):
     waiting_for_target_weight = State()
     waiting_for_months = State()
 
+# Состояния для дневника воды
+class WaterStates(StatesGroup):
+    waiting_for_custom_water = State()
+
 # Состояния для логирования еды
 class FoodStates(StatesGroup):
     waiting_for_calories = State()
+
+
+# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
+
+def check_water_limit(current_water: int, water_goal: int) -> str:
+    """Проверяет превышение нормы воды и выдает текст-предупреждение"""
+    if current_water > water_goal:
+        return (
+            "\n\n⚠️ *Внимание:* Ты превысил свою дневную норму! "
+            "Пить слишком много воды не стоит — это создает лишнюю экстренную нагрузку на почки и вымывает минералы. "
+            "Все хорошо в меру, старайся держаться ближе к рассчитанной норме! 🙌"
+        )
+    return f"\n\nОсталось выпить: {max(0, water_goal - current_water)} мл."
 
 
 # --- КЛАВИАТУРЫ ---
@@ -44,12 +61,13 @@ def get_main_menu_keyboard():
     return builder.as_markup()
 
 def get_water_keyboard():
-    """Клавиатура для быстрой вставки воды"""
+    """Клавиатура для быстрой вставки воды + свой ввод"""
     builder = InlineKeyboardBuilder()
     builder.row(
         types.InlineKeyboardButton(text="➕ 250 мл", callback_data="add_water_250"),
         types.InlineKeyboardButton(text="➕ 500 мл", callback_data="add_water_500")
     )
+    builder.row(types.InlineKeyboardButton(text="✍️ Свой объём", callback_data="add_water_custom"))
     builder.row(types.InlineKeyboardButton(text="🔙 Назад в меню", callback_data="back_to_menu"))
     return builder.as_markup()
 
@@ -147,16 +165,19 @@ async def callback_menu_water(callback: types.CallbackQuery):
     user = database.get_user_profile(callback.from_user.id)
     log = database.get_or_create_daily_log(callback.from_user.id)
     
+    status_text = check_water_limit(log['water_ml'], user['water_goal'])
+    
     text = (
         "💧 *Дневник воды за сегодня:*\n\n"
         f"• Выпито: {log['water_ml']} мл\n"
-        f"• Твоя норма: {user['water_goal']} мл\n\n"
-        f"Осталось выпить: {max(0, user['water_goal'] - log['water_ml'])} мл."
+        f"• Твоя норма: {user['water_goal']} мл"
+        f"{status_text}"
     )
     await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=get_water_keyboard())
     await callback.answer()
 
-@dp.callback_query(F.data.startswith("add_water_"))
+# ИСПРАВЛЕНО: Теперь ловим только те кнопки, где в конце строки идут цифры веса (250, 500 и т.д.)
+@dp.callback_query(F.data.startswith("add_water_") & F.data.split("_")[2].cast(str).isdigit())
 async def callback_add_water(callback: types.CallbackQuery):
     amount = int(callback.data.split("_")[2])
     database.add_water_to_db(callback.from_user.id, amount)
@@ -164,14 +185,39 @@ async def callback_add_water(callback: types.CallbackQuery):
     user = database.get_user_profile(callback.from_user.id)
     log = database.get_or_create_daily_log(callback.from_user.id)
     
+    status_text = check_water_limit(log['water_ml'], user['water_goal'])
+    
     text = (
         "💧 *Дневник воды за сегодня:*\n\n"
         f"• Выпито: {log['water_ml']} мл\n"
-        f"• Твоя норма: {user['water_goal']} мл\n\n"
-        f"Осталось выпить: {max(0, user['water_goal'] - log['water_ml'])} мл."
+        f"• Твоя норма: {user['water_goal']} мл"
+        f"{status_text}"
     )
     await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=get_water_keyboard())
     await callback.answer(f"Добавлено {amount} мл! 🥤")
+
+@dp.callback_query(F.data == "add_water_custom")
+async def callback_add_water_custom(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.answer("Введите количество выпитой воды в миллилитрах (мл):")
+    await state.set_state(WaterStates.waiting_for_custom_water)
+    await callback.message.delete()
+    await callback.answer()
+
+@dp.message(WaterStates.waiting_for_custom_water)
+async def process_custom_water(message: types.Message, state: FSMContext):
+    if not message.text.isdigit():
+        await message.answer("Пожалуйста, введи количество миллилитров числом (например: 350)!")
+        return
+        
+    amount = int(message.text)
+    if amount <= 0:
+        await message.answer("Объем должен быть больше нуля!")
+        return
+        
+    database.add_water_to_db(message.from_user.id, amount)
+    await message.answer(f"✅ Успешно записано: {amount} мл воды.")
+    await message.answer("📋 Главное меню:", reply_markup=get_main_menu_keyboard())
+    await state.clear()
 
 
 # --- ДНЕВНИК ЕДЫ ---
