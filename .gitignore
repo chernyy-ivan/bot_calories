@@ -2,6 +2,7 @@
 venv/
 .venv/
 env/
+tracker.db
 
 # Игнорируем кэш Python
 **/__pycache__/
