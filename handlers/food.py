@@ -15,7 +15,27 @@ async def callback_menu_food(callback: types.CallbackQuery):
         return
 
     log = database.get_or_create_daily_log(callback.from_user.id)
-    text = f"🍎 *Дневник еды:*\n\n• Съедено: {log['calories_consumed']} ккал\n• Норма: {user['calorie_goal']} ккал\n\nОсталось: {max(0, user['calorie_goal'] - log['calories_consumed'])} ккал."
+    
+    # Получаем детальный список блюд за сегодня
+    food_items = database.get_daily_food_list(callback.from_user.id)
+    
+    # Формируем красивый список текстом
+    if food_items:
+        history_text = ""
+        for idx, item in enumerate(food_items, 1):
+            history_text += f"{idx}. *{item['food_name']}* — {item['calories']} ккал\n"
+    else:
+        history_text = "_Ты еще ничего не записал за сегодня_\n"
+
+    text = (
+        f"🍎 *Дневник еды:*\n\n"
+        f"📝 *Съедено за сегодня:*\n{history_text}\n"
+        f"📊 *Итого за день:*\n"
+        f"• Всего съедено: {log['calories_consumed']} ккал\n"
+        f"• Твоя норма: {user['calorie_goal']} ккал\n\n"
+        f"Осталось: {max(0, user['calorie_goal'] - log['calories_consumed'])} ккал."
+    )
+    
     await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=keyboards.get_food_keyboard())
     await callback.answer()
 
@@ -39,11 +59,13 @@ async def process_food_calories(message: types.Message, state: FSMContext):
         await message.answer("Введи число!")
         return
     calories = int(message.text)
-    database.add_calories_to_db(message.from_user.id, calories)
     
     user_data = await state.get_data()
     food_name = user_data.get('food_name', 'Продукт')
     
-    await message.answer(f"✅ Записано: *{food_name}* — {calories} ккал.")
+    # Передаем и ID, и название блюда, и калории в обновленную функцию БД
+    database.add_calories_to_db(message.from_user.id, food_name, calories)
+    
+    await message.answer(f"✅ Записано: *{food_name}* — {calories} ккал.", parse_mode="Markdown")
     await message.answer("📋 Главное меню:", reply_markup=keyboards.get_main_menu_keyboard())
     await state.clear()
