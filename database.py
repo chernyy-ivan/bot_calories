@@ -69,6 +69,17 @@ def update_user_profile(user_id: int, username: str, age: int, height: int,
     conn.commit()
     conn.close()
 
+
+def add_steps_to_db(user_id: int, steps: int):
+    current_date = date.today().strftime("%Y-%m-%d")
+    get_or_create_daily_log(user_id)
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('UPDATE daily_logs SET steps = steps + ? WHERE user_id = ? AND date = ?', (steps, user_id, current_date))
+    conn.commit()
+    conn.close()
+
+
 def get_user_profile(user_id: int):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()

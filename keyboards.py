@@ -4,11 +4,8 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 def get_main_menu_keyboard():
     builder = InlineKeyboardBuilder()
     builder.row(types.InlineKeyboardButton(text="👤 Мой профиль", callback_data="view_profile"))
-    builder.row(
-        types.InlineKeyboardButton(text="💧 Дневник Воды", callback_data="menu_water"),
-        types.InlineKeyboardButton(text="🍎 Дневник Еды", callback_data="menu_food")
-    )
-    # Кнопка для записи веса
+    builder.row(types.InlineKeyboardButton(text="💧 Дневник Воды", callback_data="menu_water"), types.InlineKeyboardButton(text="🍎 Дневник Еды", callback_data="menu_food"))
+    builder.row(types.InlineKeyboardButton(text="🏃‍♂️ Записать шаги", callback_data="add_steps_prompt"))
     builder.row(types.InlineKeyboardButton(text="⚖️ Записать новый вес", callback_data="track_weight"))
     builder.row(types.InlineKeyboardButton(text="⚙️ Перезаполнить анкету", callback_data="restart_survey"))
     return builder.as_markup()

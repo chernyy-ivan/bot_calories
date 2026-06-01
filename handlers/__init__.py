@@ -1,5 +1,5 @@
 from aiogram import Router
-from . import common, water, food, weight
+from . import common, water, food, weight, activity
 
 # Создаем главный рутер обработчиков
 router = Router()
@@ -9,5 +9,6 @@ router.include_routers(
     common.router,
     water.router,
     food.router,
-    weight.router  # Наш новый рутер веса
+    weight.router,
+    activity.router,
 )

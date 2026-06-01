@@ -12,7 +12,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
     user = database.get_user_profile(message.from_user.id)
     if user:
         await message.answer(
-            f"Привет, {message.from_user.first_name}! Рад возвращению. 👋\nТвой профиль настроен.",
+            f"Привет, {message.from_user.first_name}! Рад возвращению. 👋",
             reply_markup=keyboards.get_main_menu_keyboard()
         )
     else:
@@ -31,8 +31,8 @@ async def cmd_menu(message: types.Message, state: FSMContext):
 @router.callback_query(F.data == "view_profile")
 async def callback_view_profile(callback: types.CallbackQuery):
     user = database.get_user_profile(callback.from_user.id)
+    log = database.get_or_create_daily_log(callback.from_user.id)
     
-    # ЗАЩИТА: Если профиля нет в новой БД
     if not user:
         await callback.message.edit_text(
             "⚠️ Профиль не найден. Пожалуйста, пройди анкетирование заново через команду /start", 
@@ -45,9 +45,14 @@ async def callback_view_profile(callback: types.CallbackQuery):
     goal_status = "📉 Похудение" if weight_diff > 0 else "📈 Набор массы" if weight_diff < 0 else "⚖️ Поддержание"
     
     profile_text = (
-        f"👤 *Профиль:*\n• Возраст: {user['age']}\n• Рост: {user['height']} см\n"
-        f"• Вес: {user['current_weight']} кг\n• Цель: {user['target_weight']} кг ({goal_status})\n\n"
-        f"🔥 *Норма калорий:* {user['calorie_goal']} ккал\n💧 *Норма воды:* {user['water_goal']} мл"
+        f"👤 *Профиль:*\n"
+        f"• Возраст: {user['age']}\n"
+        f"• Рост: {user['height']} см\n"
+        f"• Вес: {user['current_weight']} кг\n"
+        f"• Цель: {user['target_weight']} кг ({goal_status})\n\n"
+        f"🔥 *Норма калорий:* {user['calorie_goal']} ккал\n"
+        f"💧 *Норма воды:* {user['water_goal']} мл\n"
+        f"🏃‍♂️ *Шаги за сегодня:* {log['steps']}"
     )
     await callback.message.edit_text(profile_text, parse_mode="Markdown", reply_markup=keyboards.get_back_to_menu_keyboard())
     await callback.answer()
@@ -91,7 +96,7 @@ async def process_weight(message: types.Message, state: FSMContext):
         await message.answer("Введи число!")
         return
     await state.update_data(current_weight=weight)
-    await message.answer("Желаемый вес в конце похудения:")
+    await message.answer("Целевой вес:")
     await state.set_state(ProfileStates.waiting_for_target_weight)
 
 @router.message(ProfileStates.waiting_for_target_weight)
