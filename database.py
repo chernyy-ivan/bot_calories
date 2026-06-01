@@ -1,4 +1,5 @@
 import sqlite3
+from datetime import date
 
 DB_NAME = "tracker.db"
 
@@ -86,3 +87,63 @@ def get_user_profile(user_id: int):
             "water_goal": row[6]
         }
     return None
+
+def get_or_create_daily_log(user_id: int):
+    """Находит или создает запись на сегодняшний день для конкретного пользователя"""
+    current_date = date.today().strftime("%Y-%m-%d")
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    # Пытаемся вставить пустую запись на сегодня, если её нет
+    cursor.execute('''
+        INSERT OR IGNORE INTO daily_logs (user_id, date, calories_consumed, calories_burned, water_ml, steps)
+        VALUES (?, ?, 0, 0, 0, 0)
+    ''', (user_id, current_date))
+    
+    conn.commit()
+    
+    # Забираем актуальные данные за сегодня
+    cursor.execute('''
+        SELECT calories_consumed, calories_burned, water_ml, steps 
+        FROM daily_logs WHERE user_id = ? AND date = ?
+    ''', (user_id, current_date))
+    
+    row = cursor.fetchone()
+    conn.close()
+    
+    return {
+        "calories_consumed": row[0],
+        "calories_burned": row[1],
+        "water_ml": row[2],
+        "steps": row[3]
+    }
+
+def add_water_to_db(user_id: int, amount_ml: int):
+    """Добавляет воду к сегодняшнему дню"""
+    current_date = date.today().strftime("%Y-%m-%d")
+    get_or_create_daily_log(user_id)
+    
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''
+        UPDATE daily_logs 
+        SET water_ml = water_ml + ? 
+        WHERE user_id = ? AND date = ?
+    ''', (amount_ml, user_id, current_date))
+    conn.commit()
+    conn.close()
+
+def add_calories_to_db(user_id: int, calories: int):
+    """Добавляет потребленные калории к сегодняшнему дню"""
+    current_date = date.today().strftime("%Y-%m-%d")
+    get_or_create_daily_log(user_id)
+    
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''
+        UPDATE daily_logs 
+        SET calories_consumed = calories_consumed + ? 
+        WHERE user_id = ? AND date = ?
+    ''', (calories, user_id, current_date))
+    conn.commit()
+    conn.close()

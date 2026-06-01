@@ -25,19 +25,42 @@ class ProfileStates(StatesGroup):
     waiting_for_target_weight = State()
     waiting_for_months = State()
 
+# Состояния для логирования еды
+class FoodStates(StatesGroup):
+    waiting_for_calories = State()
+
 
 # --- КЛАВИАТУРЫ ---
 
 def get_main_menu_keyboard():
-    """Создает инлайн-клавиатуру главного меню"""
+    """Главное меню с раздельными вкладками дневника"""
     builder = InlineKeyboardBuilder()
     builder.row(types.InlineKeyboardButton(text="👤 Мой профиль", callback_data="view_profile"))
-    builder.row(types.InlineKeyboardButton(text="📊 Дневник (Скоро)", callback_data="coming_soon"))
+    builder.row(
+        types.InlineKeyboardButton(text="💧 Дневник Воды", callback_data="menu_water"),
+        types.InlineKeyboardButton(text="🍎 Дневник Еды", callback_data="menu_food")
+    )
     builder.row(types.InlineKeyboardButton(text="⚙️ Перезаполнить анкету", callback_data="restart_survey"))
     return builder.as_markup()
 
+def get_water_keyboard():
+    """Клавиатура для быстрой вставки воды"""
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        types.InlineKeyboardButton(text="➕ 250 мл", callback_data="add_water_250"),
+        types.InlineKeyboardButton(text="➕ 500 мл", callback_data="add_water_500")
+    )
+    builder.row(types.InlineKeyboardButton(text="🔙 Назад в меню", callback_data="back_to_menu"))
+    return builder.as_markup()
+
+def get_food_keyboard():
+    """Клавиатура для дневника еды"""
+    builder = InlineKeyboardBuilder()
+    builder.row(types.InlineKeyboardButton(text="✍️ Записать калории", callback_data="add_food_prompt"))
+    builder.row(types.InlineKeyboardButton(text="🔙 Назад в меню", callback_data="back_to_menu"))
+    return builder.as_markup()
+
 def get_back_to_menu_keyboard():
-    """Создает кнопку возврата в главное меню"""
     builder = InlineKeyboardBuilder()
     builder.row(types.InlineKeyboardButton(text="🔙 Назад в меню", callback_data="back_to_menu"))
     return builder.as_markup()
@@ -47,7 +70,6 @@ def get_back_to_menu_keyboard():
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message, state: FSMContext):
-    # Проверяем, есть ли уже пользователь в базе
     user = database.get_user_profile(message.from_user.id)
     if user:
         await message.answer(
@@ -65,8 +87,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
 
 @dp.message(Command("menu"))
 async def cmd_menu(message: types.Message, state: FSMContext):
-    """Команда для вызова главного меню в любой момент"""
-    await state.clear()  # Сбрасываем состояния, если пользователь ушел из анкеты
+    await state.clear()
     user = database.get_user_profile(message.from_user.id)
     if not user:
         await message.answer("Сначала необходимо настроить профиль! Напиши /start")
@@ -78,15 +99,12 @@ async def cmd_menu(message: types.Message, state: FSMContext):
 
 @dp.callback_query(F.data == "view_profile")
 async def callback_view_profile(callback: types.CallbackQuery):
-    """Просмотр данных профиля"""
     user = database.get_user_profile(callback.from_user.id)
-    
     if not user:
-        await callback.message.edit_text("Профиль не найден. Пожалуйста, пройдите анкетирование через /start")
+        await callback.message.edit_text("Профиль не найден. Пройди анкетирование через /start")
         await callback.answer()
         return
 
-    # Определяем тип цели для красивого вывода
     weight_diff = user['current_weight'] - user['target_weight']
     if weight_diff > 0:
         goal_status = f"📉 Похудение (сбросить {round(weight_diff, 1)} кг за {user['target_months']} мес.)"
@@ -105,32 +123,92 @@ async def callback_view_profile(callback: types.CallbackQuery):
         f"🔥 *Норма калорий:* {user['calorie_goal']} ккал\n"
         f"💧 *Норма воды:* {user['water_goal']} мл"
     )
-    
-    # Редактируем старое сообщение вместо отправки нового, чтобы не спамить чат
     await callback.message.edit_text(profile_text, parse_mode="Markdown", reply_markup=get_back_to_menu_keyboard())
-    # Обязательно уведомляем Telegram, что кнопка обработана
     await callback.answer()
 
 @dp.callback_query(F.data == "back_to_menu")
 async def callback_back_to_menu(callback: types.CallbackQuery):
-    """Возврат в главное меню из любого подраздела"""
     await callback.message.edit_text("📋 Главное меню:", reply_markup=get_main_menu_keyboard())
     await callback.answer()
 
 @dp.callback_query(F.data == "restart_survey")
 async def callback_restart_survey(callback: types.CallbackQuery, state: FSMContext):
-    """Запуск анкеты заново прямо из меню"""
     await state.clear()
     await callback.message.answer("Запускаем настройку заново. Сколько тебе лет?")
     await state.set_state(ProfileStates.waiting_for_age)
-    # Удаляем сообщение с меню, чтобы пользователь переключился на анкету
     await callback.message.delete()
     await callback.answer()
 
-@dp.callback_query(F.data == "coming_soon")
-async def callback_coming_soon(callback: types.CallbackQuery):
-    """Временная заглушка для функций в разработке"""
-    await callback.answer("Эта функция будет добавлена в следующих уроках! 🚀", show_alert=True)
+
+# --- ДНЕВНИК ВОДЫ ---
+
+@dp.callback_query(F.data == "menu_water")
+async def callback_menu_water(callback: types.CallbackQuery):
+    user = database.get_user_profile(callback.from_user.id)
+    log = database.get_or_create_daily_log(callback.from_user.id)
+    
+    text = (
+        "💧 *Дневник воды за сегодня:*\n\n"
+        f"• Выпито: {log['water_ml']} мл\n"
+        f"• Твоя норма: {user['water_goal']} мл\n\n"
+        f"Осталось выпить: {max(0, user['water_goal'] - log['water_ml'])} мл."
+    )
+    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=get_water_keyboard())
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("add_water_"))
+async def callback_add_water(callback: types.CallbackQuery):
+    amount = int(callback.data.split("_")[2])
+    database.add_water_to_db(callback.from_user.id, amount)
+    
+    user = database.get_user_profile(callback.from_user.id)
+    log = database.get_or_create_daily_log(callback.from_user.id)
+    
+    text = (
+        "💧 *Дневник воды за сегодня:*\n\n"
+        f"• Выпито: {log['water_ml']} мл\n"
+        f"• Твоя норма: {user['water_goal']} мл\n\n"
+        f"Осталось выпить: {max(0, user['water_goal'] - log['water_ml'])} мл."
+    )
+    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=get_water_keyboard())
+    await callback.answer(f"Добавлено {amount} мл! 🥤")
+
+
+# --- ДНЕВНИК ЕДЫ ---
+
+@dp.callback_query(F.data == "menu_food")
+async def callback_menu_food(callback: types.CallbackQuery):
+    user = database.get_user_profile(callback.from_user.id)
+    log = database.get_or_create_daily_log(callback.from_user.id)
+    
+    text = (
+        "🍎 *Дневник еды за сегодня:*\n\n"
+        f"• Съедено калорий: {log['calories_consumed']} ккал\n"
+        f"• Твоя целевая норма: {user['calorie_goal']} ккал\n\n"
+        f"Осталось ккал на сегодня: {max(0, user['calorie_goal'] - log['calories_consumed'])} ккал."
+    )
+    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=get_food_keyboard())
+    await callback.answer()
+
+@dp.callback_query(F.data == "add_food_prompt")
+async def callback_add_food_prompt(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.answer("Введите количество калорий (ккал), которые вы съели:")
+    await state.set_state(FoodStates.waiting_for_calories)
+    await callback.message.delete()
+    await callback.answer()
+
+@dp.message(FoodStates.waiting_for_calories)
+async def process_food_calories(message: types.Message, state: FSMContext):
+    if not message.text.isdigit():
+        await message.answer("Пожалуйста, введи количество калорий числом!")
+        return
+        
+    calories = int(message.text)
+    database.add_calories_to_db(message.from_user.id, calories)
+    
+    await message.answer(f"✅ Успешно записано: {calories} ккал.")
+    await message.answer("📋 Главное меню:", reply_markup=get_main_menu_keyboard())
+    await state.clear()
 
 
 # --- ПРОЦЕСС АНКЕТИРОВАНИЯ (FSM) ---
