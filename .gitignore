@@ -2,7 +2,9 @@
 venv/
 .venv/
 env/
-tracker.db
+
+# Игнорируем локальную базу данных
+data/
 
 # Игнорируем кэш Python
 **/__pycache__/

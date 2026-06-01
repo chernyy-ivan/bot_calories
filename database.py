@@ -1,7 +1,12 @@
+import os
 import sqlite3
 from datetime import date
 
-DB_NAME = "tracker.db"
+# Автоматически создаем папку data в корне, если её нет
+os.makedirs("data", exist_ok=True)
+
+# Переносим путь к базе в эту папку
+DB_NAME = os.path.join("data", "tracker.db")
 
 def init_db():
     """Создает таблицы в базе данных"""
@@ -94,7 +99,6 @@ def get_or_create_daily_log(user_id: int):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
-    # Пытаемся вставить пустую запись на сегодня, если её нет
     cursor.execute('''
         INSERT OR IGNORE INTO daily_logs (user_id, date, calories_consumed, calories_burned, water_ml, steps)
         VALUES (?, ?, 0, 0, 0, 0)
@@ -102,7 +106,6 @@ def get_or_create_daily_log(user_id: int):
     
     conn.commit()
     
-    # Забираем актуальные данные за сегодня
     cursor.execute('''
         SELECT calories_consumed, calories_burned, water_ml, steps 
         FROM daily_logs WHERE user_id = ? AND date = ?
@@ -147,3 +150,44 @@ def add_calories_to_db(user_id: int, calories: int):
     ''', (calories, user_id, current_date))
     conn.commit()
     conn.close()
+
+def update_weight_and_recalculate(user_id: int, new_weight: float):
+    """Обновляет текущий вес пользователя, пересчитывает нормы и возвращает предыдущий вес"""
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row 
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+    user = cursor.fetchone()
+    if not user:
+        conn.close()
+        return None
+
+    old_weight = user['current_weight']
+    age = user['age']
+    height = user['height']
+    target_weight = user['target_weight']
+    target_months = user['target_months']
+
+    # Формулы пересчета
+    water_goal = int(new_weight * 30)
+    bmr = (10 * new_weight) + (6.25 * height) - (5 * age) + 5
+    weight_diff = new_weight - target_weight
+
+    if weight_diff > 0:
+        kg_per_month = weight_diff / target_months
+        calorie_goal = int(bmr * 0.8) if kg_per_month > 4 else int(bmr * 0.9)
+    elif weight_diff < 0:
+        calorie_goal = int(bmr * 1.1)
+    else:
+        calorie_goal = int(bmr)
+
+    cursor.execute('''
+        UPDATE users 
+        SET current_weight = ?, water_goal = ?, calorie_goal = ? 
+        WHERE user_id = ?
+    ''', (new_weight, water_goal, calorie_goal, user_id))
+
+    conn.commit()
+    conn.close()
+    return old_weight
